@@ -47,6 +47,24 @@ function muxPreference(): MuxBackend | null {
   return null;
 }
 
+export type ZellijPlacementPreference = "auto" | "tab";
+
+/**
+ * PI_SUBAGENT_ZELLIJ_PLACEMENT=tab forces every zellij subagent surface to open
+ * as its own tab (via createZellijTab), skipping the split/stack placement
+ * heuristics entirely. Useful when a tab's existing chrome (a custom tab-bar
+ * row, a sidebar plugin like zj-radar, etc.) isn't safe for live pane surgery:
+ * Zellij's own tiling reflow can relocate fixed-size chrome panes when
+ * new-pane/split actions run against a tab that already contains them. Opening
+ * a fresh tab per subagent never touches another tab's live pane tree, so it
+ * sidesteps that class of bug. Default ("auto") keeps the existing
+ * split-then-stack-then-tab fallback behavior.
+ */
+export function zellijPlacementPreference(): ZellijPlacementPreference {
+  const pref = (process.env.PI_SUBAGENT_ZELLIJ_PLACEMENT ?? "").trim().toLowerCase();
+  return pref === "tab" ? "tab" : "auto";
+}
+
 function isCmuxRuntimeAvailable(): boolean {
   return !!process.env.CMUX_SOCKET_PATH && hasCommand("cmux");
 }
@@ -140,6 +158,29 @@ export function exitStatusVar(): string {
 
 export function shellEscape(s: string): string {
   return "'" + s.replace(/'/g, "'\\''") + "'";
+}
+
+/**
+ * argv prefix that launches the pane's normal login shell with
+ * PI_SUBAGENT_PANE=1 set in its environment, so shell rc files (e.g. fish's
+ * config.fish) can detect a subagent pane and skip interactive-only startup
+ * noise like a fastfetch/neofetch banner. Also threads ZJ_RADAR_PARENT_PANE_ID
+ * — this orchestrating process's own $ZELLIJ_PANE_ID, verbatim — into the new
+ * surface's environment when known, so a zj-radar sidebar can visually group
+ * the subagent's tab/pane under its parent: `zj-radar notify` reads the var
+ * back out of its own env at broadcast time (see zj-radar's
+ * `parent_pane_id_from_env`), so nothing here needs to know zj-radar's wire
+ * format or even whether it's installed — an agent with no zj-radar on PATH
+ * just inherits an env var nothing reads. Returns null when $SHELL isn't set
+ * (falls back to zellij's own default pane command).
+ */
+export function subagentShellCommand(): string[] | null {
+  const shellPath = process.env.SHELL;
+  if (!shellPath) return null;
+  const envArgs = ["PI_SUBAGENT_PANE=1"];
+  const parentPaneId = process.env.ZELLIJ_PANE_ID;
+  if (parentPaneId) envArgs.push(`ZJ_RADAR_PARENT_PANE_ID=${parentPaneId}`);
+  return ["env", ...envArgs, shellPath];
 }
 
 function tailLines(text: string, lines: number): string {
@@ -393,6 +434,8 @@ function readZellijPanes(): ZellijPaneSnapshot[] {
 
 function createZellijTiledPane(name: string, tabId: number): string {
   const args = ["new-pane", "--tab-id", String(tabId), "--name", name, "--cwd", process.cwd()];
+  const shellCommand = subagentShellCommand();
+  if (shellCommand) args.push("--", ...shellCommand);
   return parseZellijPaneSurface(zellijActionSync(args).trim(), "new-pane");
 }
 
@@ -406,11 +449,16 @@ function createZellijStackedPane(name: string, anchorSurface: string): string {
     "--cwd",
     process.cwd(),
   ];
+  const shellCommand = subagentShellCommand();
+  if (shellCommand) args.push("--", ...shellCommand);
   return parseZellijPaneSurface(zellijActionSync(args, anchorSurface).trim(), "new-pane --stacked");
 }
 
 function createZellijTab(name: string): string {
-  const tabIdRaw = zellijActionSync(["new-tab", "--name", name, "--cwd", process.cwd()]).trim();
+  const tabArgs = ["new-tab", "--name", name, "--cwd", process.cwd()];
+  const tabShellCommand = subagentShellCommand();
+  if (tabShellCommand) tabArgs.push("--", ...tabShellCommand);
+  const tabIdRaw = zellijActionSync(tabArgs).trim();
   const tabId = Number(tabIdRaw);
   if (!Number.isInteger(tabId)) {
     throw new Error(`Unexpected zellij tab id from new-tab: ${tabIdRaw || "(empty)"}`);
@@ -497,6 +545,10 @@ function withZellijSurfaceLock<T>(callback: () => T): T {
 }
 
 function createZellijSurfaceUnlocked(name: string): string {
+  if (zellijPlacementPreference() === "tab") {
+    return createZellijTab(name);
+  }
+
   const parentPaneIdRaw = process.env.ZELLIJ_PANE_ID;
   const parentPaneId = parentPaneIdRaw ? Number(parentPaneIdRaw) : NaN;
   const minColumns = envPositiveInteger(
@@ -873,6 +925,8 @@ export function createSurfaceSplit(
   // zellij
   const directionArg = direction === "left" || direction === "right" ? "right" : "down";
   const args = ["new-pane", "--direction", directionArg, "--name", name, "--cwd", process.cwd()];
+  const shellCommand = subagentShellCommand();
+  if (shellCommand) args.push("--", ...shellCommand);
 
   let rawId: string;
   try {

@@ -30,6 +30,8 @@ import {
   predictZellijSplitDirection,
   selectZellijPlacement,
   selectZellijStackPlacement,
+  zellijPlacementPreference,
+  subagentShellCommand,
 } from "../pi-extension/subagents/cmux.ts";
 import {
   advanceStatusState,
@@ -2358,6 +2360,87 @@ describe("cmux.ts", () => {
 
     it("returns null when the parent pane cannot be found", () => {
       assert.equal(selectZellijPlacement([pane({ id: 10 })], 99), null);
+    });
+  });
+
+  describe("zellijPlacementPreference", () => {
+    const withEnv = (value: string | undefined, fn: () => void) => {
+      const prior = process.env.PI_SUBAGENT_ZELLIJ_PLACEMENT;
+      if (value === undefined) delete process.env.PI_SUBAGENT_ZELLIJ_PLACEMENT;
+      else process.env.PI_SUBAGENT_ZELLIJ_PLACEMENT = value;
+      try {
+        fn();
+      } finally {
+        if (prior === undefined) delete process.env.PI_SUBAGENT_ZELLIJ_PLACEMENT;
+        else process.env.PI_SUBAGENT_ZELLIJ_PLACEMENT = prior;
+      }
+    };
+
+    it("defaults to auto when unset", () => {
+      withEnv(undefined, () => {
+        assert.equal(zellijPlacementPreference(), "auto");
+      });
+    });
+
+    it("returns tab when set to tab (case/whitespace insensitive)", () => {
+      withEnv(" Tab ", () => {
+        assert.equal(zellijPlacementPreference(), "tab");
+      });
+    });
+
+    it("falls back to auto for unrecognized values", () => {
+      withEnv("stack", () => {
+        assert.equal(zellijPlacementPreference(), "auto");
+      });
+    });
+  });
+
+  describe("subagentShellCommand", () => {
+    const withEnv = (vars: Record<string, string | undefined>, fn: () => void) => {
+      const prior: Record<string, string | undefined> = {};
+      for (const key of Object.keys(vars)) prior[key] = process.env[key];
+      for (const [key, value] of Object.entries(vars)) {
+        if (value === undefined) delete process.env[key];
+        else process.env[key] = value;
+      }
+      try {
+        fn();
+      } finally {
+        for (const [key, value] of Object.entries(prior)) {
+          if (value === undefined) delete process.env[key];
+          else process.env[key] = value;
+        }
+      }
+    };
+
+    it("returns null when $SHELL is unset", () => {
+      withEnv({ SHELL: undefined }, () => {
+        assert.equal(subagentShellCommand(), null);
+      });
+    });
+
+    it("always sets PI_SUBAGENT_PANE=1", () => {
+      withEnv({ SHELL: "/bin/zsh", ZELLIJ_PANE_ID: undefined }, () => {
+        assert.deepEqual(subagentShellCommand(), ["env", "PI_SUBAGENT_PANE=1", "/bin/zsh"]);
+      });
+    });
+
+    it("threads the caller's own ZELLIJ_PANE_ID as ZJ_RADAR_PARENT_PANE_ID for a zj-radar sidebar to group by", () => {
+      withEnv({ SHELL: "/bin/zsh", ZELLIJ_PANE_ID: "7" }, () => {
+        assert.deepEqual(subagentShellCommand(), [
+          "env",
+          "PI_SUBAGENT_PANE=1",
+          "ZJ_RADAR_PARENT_PANE_ID=7",
+          "/bin/zsh",
+        ]);
+      });
+    });
+
+    it("omits ZJ_RADAR_PARENT_PANE_ID when not itself running inside a Zellij pane", () => {
+      withEnv({ SHELL: "/bin/zsh", ZELLIJ_PANE_ID: undefined }, () => {
+        const cmd = subagentShellCommand();
+        assert.ok(cmd && !cmd.some((arg) => arg.startsWith("ZJ_RADAR_PARENT_PANE_ID")), `unexpected: ${cmd}`);
+      });
     });
   });
 

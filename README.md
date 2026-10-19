@@ -489,6 +489,25 @@ Optional backend override:
 export PI_SUBAGENT_MUX=cmux   # or tmux, zellij, wezterm
 ```
 
+Optional zellij placement override:
+
+```bash
+export PI_SUBAGENT_ZELLIJ_PLACEMENT=tab   # default "auto": split, then stack, then tab
+```
+
+By default, a zellij subagent tries a tab-scoped split, then a stacked pane,
+and only opens a new tab when neither fits (`PI_SUBAGENT_ZELLIJ_MIN_COLUMNS`/
+`PI_SUBAGENT_ZELLIJ_MIN_ROWS` tune the split-safety thresholds; they don't
+gate the stack fallback). Set `PI_SUBAGENT_ZELLIJ_PLACEMENT=tab` to always open
+each subagent as its own tab instead. The split/stack paths do live pane
+surgery (`zellij action new-pane ...`) inside the subagent's parent tab; if
+that tab's layout also pins custom chrome into its tab template (a custom
+tab-bar row, a sidebar plugin), Zellij's own tiling reflow can relocate those
+fixed-size panes to make room, since they're only protected declaratively at
+tab-creation time, not once the tab is live. Opening a fresh tab per subagent
+never touches another tab's live pane tree, avoiding that class of bug
+entirely.
+
 ---
 
 ## Acknowledgements
