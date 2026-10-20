@@ -433,16 +433,7 @@ function readZellijPanes(): ZellijPaneSnapshot[] {
 }
 
 function createZellijTiledPane(name: string, tabId: number): string {
-  const args = [
-    "new-pane",
-    "--tab-id",
-    String(tabId),
-    "--name",
-    name,
-    "--cwd",
-    process.cwd(),
-    "--no-focus",
-  ];
+  const args = ["new-pane", "--tab-id", String(tabId), "--name", name, "--cwd", process.cwd()];
   const shellCommand = subagentShellCommand();
   if (shellCommand) args.push("--", ...shellCommand);
   return parseZellijPaneSurface(zellijActionSync(args).trim(), "new-pane");
@@ -457,7 +448,6 @@ function createZellijStackedPane(name: string, anchorSurface: string): string {
     name,
     "--cwd",
     process.cwd(),
-    "--no-focus",
   ];
   const shellCommand = subagentShellCommand();
   if (shellCommand) args.push("--", ...shellCommand);
@@ -465,7 +455,7 @@ function createZellijStackedPane(name: string, anchorSurface: string): string {
 }
 
 function createZellijTab(name: string): string {
-  const tabArgs = ["new-tab", "--name", name, "--cwd", process.cwd(), "--no-focus"];
+  const tabArgs = ["new-tab", "--name", name, "--cwd", process.cwd()];
   const tabShellCommand = subagentShellCommand();
   if (tabShellCommand) tabArgs.push("--", ...tabShellCommand);
   const tabIdRaw = zellijActionSync(tabArgs).trim();
@@ -934,16 +924,7 @@ export function createSurfaceSplit(
 
   // zellij
   const directionArg = direction === "left" || direction === "right" ? "right" : "down";
-  const args = [
-    "new-pane",
-    "--direction",
-    directionArg,
-    "--name",
-    name,
-    "--cwd",
-    process.cwd(),
-    "--no-focus",
-  ];
+  const args = ["new-pane", "--direction", directionArg, "--name", name, "--cwd", process.cwd()];
   const shellCommand = subagentShellCommand();
   if (shellCommand) args.push("--", ...shellCommand);
 
