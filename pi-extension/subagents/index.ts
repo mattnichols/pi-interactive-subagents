@@ -277,6 +277,30 @@ function discoverAgentDefinitions(): ListedAgentDefinition[] {
   return [...agents.values()];
 }
 
+/**
+ * A `.pi/agent/` directory only warrants isolating a subagent's config into it
+ * if it's actually a functional agent config — i.e. its settings.json names a
+ * model/provider or declares packages. Plenty of directories (e.g. a dotfiles
+ * repo that merely Stow-sources global skills/extensions into `.pi/agent/`)
+ * contain a `.pi/agent/` tree without being a real standalone config root; for
+ * those we must keep propagating the caller's global/real agent dir so the
+ * spawned subagent still has working model credentials.
+ */
+function hasFunctionalAgentConfig(dir: string): boolean {
+  const settingsPath = join(dir, "settings.json");
+  if (!existsSync(settingsPath)) return false;
+  try {
+    const settings = JSON.parse(readFileSync(settingsPath, "utf8"));
+    return Boolean(
+      settings?.defaultModel ||
+        settings?.defaultProvider ||
+        (Array.isArray(settings?.packages) && settings.packages.length > 0),
+    );
+  } catch {
+    return false;
+  }
+}
+
 function resolveSubagentPaths(
   params: Static<typeof SubagentParams>,
   agentDefs: AgentDefaults | null,
@@ -291,7 +315,7 @@ function resolveSubagentPaths(
     : null;
   const localAgentDir = effectiveCwd ? join(effectiveCwd, ".pi", "agent") : null;
   const effectiveAgentDir =
-    localAgentDir && existsSync(localAgentDir) ? localAgentDir : getAgentConfigDir();
+    localAgentDir && hasFunctionalAgentConfig(localAgentDir) ? localAgentDir : getAgentConfigDir();
   return { effectiveCwd, localAgentDir, effectiveAgentDir };
 }
 
@@ -1119,9 +1143,10 @@ async function launchSubagent(
   // Build env prefix: denied tools + subagent identity + config dir propagation
   const envParts: string[] = [];
 
-  // If the target cwd has its own .pi/agent/, use that as the config root.
+  // If the target cwd has its own functional .pi/agent/ (a real settings.json
+  // naming a model/provider or packages), use that as the config root.
   // Otherwise propagate the current/global agent dir.
-  if (localAgentDir && existsSync(localAgentDir)) {
+  if (localAgentDir && hasFunctionalAgentConfig(localAgentDir)) {
     envParts.push(`PI_CODING_AGENT_DIR=${shellEscape(localAgentDir)}`);
   } else if (process.env.PI_CODING_AGENT_DIR) {
     envParts.push(`PI_CODING_AGENT_DIR=${shellEscape(process.env.PI_CODING_AGENT_DIR)}`);
